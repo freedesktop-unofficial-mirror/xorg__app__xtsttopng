@@ -74,7 +74,6 @@ assign_hsv(struct xts_color *color, float h, float s, float v)
 {
 	uint16_t    r, g, b;
 
-	printf ("%f %f %f\n", h, s, v);
 	if (v == 0) {
 		r = g = b = 0;
 	} else if (s == 0) {
@@ -125,7 +124,6 @@ assign_hsv(struct xts_color *color, float h, float s, float v)
 			break;
 		}
 	}
-	printf ("\t%d %d %d\n", r, g, b);
 	color->r = r;
 	color->g = g;
 	color->b = b;
@@ -365,10 +363,10 @@ main (int argc, char **argv)
 			last = &image->next;
 		}
 	}
-	printf ("%d colors\n", num_colors);
 	assign_rgb();
 	while ((image = images) != NULL) {
 		if (image->dest_file) {
+			printf ("%s\n", image->dest_file);
 			output = fopen(image->dest_file, "w");
 			if (!output)
 				perror(image->dest_file);
