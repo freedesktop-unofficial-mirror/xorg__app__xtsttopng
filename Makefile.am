@@ -17,6 +17,8 @@
 
 bin_PROGRAMS = xtsttopng
 
+man_MANS = xtsttopng.1
+
 AM_CFLAGS = $(XTSTTOPNG_CFLAGS) $(CWARNFLAGS)
 xtsttopng_LDADD = $(XTSTTOPNG_LIBS)
 
