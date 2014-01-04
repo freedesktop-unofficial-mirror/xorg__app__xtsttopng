@@ -25,6 +25,12 @@
 #include <math.h>
 #include <png.h>
 
+/*
+ * Unique pixel values mapped to RGB values for all
+ * of the images processed. Stored in a skip list for
+ * reasonably efficient fetching
+ */
+
 #define MAX_LEVEL       32
 
 struct xts_color {
@@ -165,6 +171,9 @@ find_color(struct xts_image *image, uint32_t pixel) {
 	struct xts_color    *s, **next;
 	int i;
 
+	/* Find the specified pixel value, saving the
+	 * trace in case we need to insert
+	 */
 	next = colors;
 	for (i = MAX_LEVEL; --i >= 0;) {
 		for (; (s = next[i]); next = s->next) {
@@ -176,6 +185,8 @@ find_color(struct xts_image *image, uint32_t pixel) {
 		update[i] = &next[i];
 	}
 
+	/* Insert a new color structure into the skiplist
+	 */
 	s = alloc_color();
 	s->pixel = pixel;
 	++num_colors;
@@ -194,8 +205,11 @@ free_image(struct xts_image *image)
 	free (image);
 }
 
+/*
+ * Read one XTS image into memory from the specified file
+ */
 static struct xts_image *
-read_image(FILE *file)
+read_image(FILE *file, char *inname)
 {
 	int width, height, depth;
 	struct xts_image *image;
@@ -205,8 +219,11 @@ read_image(FILE *file)
 	uint32_t *pixels;
 	char line[80];
 
-	if (fscanf(file, "%d %d %d\n", &width, &height, &depth) != 3)
+	if (fscanf(file, "%d %d %d\n", &width, &height, &depth) != 3) {
+		if (!feof(file))
+			fprintf (stderr, "%s: Parse error on header\n", inname);
 		return NULL;
+	}
 
 	image = malloc (sizeof (struct xts_image) +
 			(width * height * sizeof (uint32_t)));
@@ -220,13 +237,14 @@ read_image(FILE *file)
 	image->depth = depth;
 	while (count > 0) {
 		if (fgets(line, sizeof(line), file) == NULL) {
-			printf ("run bad\n");
+			fprintf (stderr, "%s: read error\n", inname);
 			free(image);
 			return NULL;
 		}
 		if (sscanf (line, "%x,%x\n", &run, &pixel) != 2) {
 			if (sscanf(line, "%x", &pixel) != 1) {
-				printf ("run bad\n");
+				fprintf (stderr, "%s: invalid line \"%s\"\n",
+					 inname, line);
 				free(image);
 				return NULL;
 			}
@@ -239,7 +257,8 @@ read_image(FILE *file)
 			count--;
 		}
 		if (run) {
-			printf ("run left over\n");
+			fprintf (stderr, "%s: run left over at end\n",
+				 inname);
 			free(image);
 			return NULL;
 		}
@@ -281,6 +300,8 @@ dump_png(FILE *file, struct xts_image *image)
 	int count;
 	struct xts_color *color;
 
+	/* Convert from pixel values to RGB image
+	 */
 	rgb = malloc (image->height * image->width * sizeof (uint32_t));
 	if (!rgb)
 		return;
@@ -294,15 +315,23 @@ dump_png(FILE *file, struct xts_image *image)
 		*r++ = (color->b << 16) | (color->g << 8) | color->r;
 	}
 
+	/* Allocate PNG structures as needed and initialize
+	 */
 	rows = calloc(image->height, sizeof (png_byte *));
+	if (!rows)
+		return;
 
 	for (i = 0; i < image->height; i++)
 		rows[i] = (png_byte *) rgb + i * image->width * sizeof (uint32_t);
 
 	png = png_create_write_struct(PNG_LIBPNG_VER_STRING, &status,
 				      NULL, NULL);
+	if (!png)
+		return;
 
 	info = png_create_info_struct(png);
+	if (!info)
+		return;
 
 	png_set_write_fn (png, file, stdio_write_func, png_simple_output_flush_fn);
 
@@ -324,8 +353,12 @@ dump_png(FILE *file, struct xts_image *image)
 	free (rgb);
 }
 
+/* Create a new filename from the original filename with the specified
+ * index and extension
+ */
 static char *
-newname(char *orig_name, int i, const char *extension) {
+newname(char *orig_name, int i, const char *extension)
+{
 	char        *b = basename(orig_name);
 	char        *dot = strrchr(b, '.');
 	char        *new;
@@ -348,6 +381,8 @@ main (int argc, char **argv)
 	int         f, i;
 	struct xts_image	*images = NULL, **last = &images;
 
+	/* Read all of the images
+	 */
 	for (f = 1; f < argc; f++) {
 		inname = argv[f];
 		input = fopen(inname, "r");
@@ -356,14 +391,21 @@ main (int argc, char **argv)
 			continue;
 		}
 		i = 0;
-		while ((image = read_image(input)) != NULL) {
+		while ((image = read_image(input, inname)) != NULL) {
 			image->dest_file = newname(inname, i++, "png");
 			image->next = NULL;
 			*last = image;
 			last = &image->next;
 		}
 	}
+
+	/* Assign colors for the whole set
+	 */
 	assign_rgb();
+
+	/* Write all of the images out using the
+	 * allocated colors
+	 */
 	while ((image = images) != NULL) {
 		if (image->dest_file) {
 			printf ("%s\n", image->dest_file);
